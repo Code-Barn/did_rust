@@ -87,3 +87,48 @@ pub extern "C" fn issue_vc_ffi(
         Err(_) => ptr::null_mut(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CString;
+
+    #[test]
+    fn test_generate_did() {
+        let method = CString::new("key").unwrap();
+        let ptr = generate_did_ffi(method.as_ptr());
+        assert!(!ptr.is_null());
+
+        let result = unsafe { CStr::from_ptr(ptr) }.to_str().unwrap();
+        assert!(result.starts_with("did:key:rust-"));
+
+        free_string(ptr);
+    }
+
+    #[test]
+    fn test_verify_vc() {
+        let valid_vc = CString::new("{\"credentialSubject\": {}}").unwrap();
+        assert!(verify_vc_ffi(valid_vc.as_ptr()));
+
+        let invalid_vc = CString::new("{}").unwrap();
+        assert!(!verify_vc_ffi(invalid_vc.as_ptr()));
+
+        assert!(!verify_vc_ffi(ptr::null()));
+    }
+
+    #[test]
+    fn test_issue_vc() {
+        let credential = CString::new("{}").unwrap();
+        let did = CString::new("did:key:123").unwrap();
+        let key = CString::new("secret").unwrap();
+
+        let ptr = issue_vc_ffi(credential.as_ptr(), did.as_ptr(), key.as_ptr());
+        assert!(!ptr.is_null());
+
+        let result = unsafe { CStr::from_ptr(ptr) }.to_str().unwrap();
+        assert!(result.contains("\"issuer\": \"did:key:123\""));
+        assert!(result.contains("\"issued\": true"));
+
+        free_string(ptr);
+    }
+}

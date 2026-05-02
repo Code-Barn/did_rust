@@ -1,74 +1,57 @@
 # Shared DID Rust Library
 
-A high-performance Rust library for DID (Decentralized Identifier) operations, shared between Polly and namechart.
+A high-performance Rust library for DID (Decentralized Identifier) operations, shared between multiple projects. This library exports C FFI bindings, making it easy to integrate with Python, Node.js, and other languages.
 
 ## Features
 
 - **DID Generation**: Generate DIDs using the `did:key` method
 - **VC Verification**: Verify Verifiable Credentials
 - **VC Issuance**: Issue new Verifiable Credentials
-- **FFI Interface**: Python bindings via ctypes
+- **FFI Interface**: C-compatible FFI bindings via `extern "C"`
 - **WASM Ready**: WebAssembly bindings prepared for browser use
 
 ## Building
+
+To build the library, you'll need [Rust and Cargo](https://rustup.rs/) installed.
 
 ```bash
 cargo build --release
 ```
 
-This produces:
-- `target/release/libdid_rust.so` - FFI library for Python
-- `target/release/libdid_rust.a` - Static library
+This produces the shared libraries in `target/release/`:
+- `libdid_rust.so` (Linux)
+- `libdid_rust.dylib` (macOS)
+- `did_rust.dll` (Windows)
+- `libdid_rust.rlib` - Static Rust library
 
-## FFI Functions
+## Quick Start (Python)
+
+The library provides FFI functions that can be easily loaded in Python using `ctypes`. See the [Developer Guide](DEVELOPER_GUIDE.md) for detailed examples on how to write the wrapper safely, ensuring proper memory management.
+
+```python
+import ctypes
+import os
+
+lib = ctypes.CDLL(os.path.join("path_to_release", "libdid_rust.so"))
+
+# ... configure argtypes and restypes ...
+# See DEVELOPER_GUIDE.md for the full wrapper implementation
+```
+
+## FFI Functions Reference
 
 | Function | Arguments | Returns | Description |
 |----------|-----------|---------|-------------|
-| `generate_did_ffi` | `method: *const c_char` | `*mut c_char` | Generate DID |
-| `verify_vc_ffi` | `vc: *const c_char` | `bool` | Verify VC |
-| `issue_vc_ffi` | `credential, did, key: *const c_char` | `*mut c_char` | Issue VC |
-| `free_string` | `ptr: *mut c_char` | `()` | Free C string |
+| `generate_did_ffi` | `method: *const c_char` | `*mut c_char` | Generates a new DID string. Must be freed! |
+| `verify_vc_ffi` | `vc: *const c_char` | `bool` | Verifies a given VC JSON string. |
+| `issue_vc_ffi` | `credential, did, key: *const c_char` | `*mut c_char` | Issues a new VC. Must be freed! |
+| `free_string` | `ptr: *mut c_char` | `()` | Frees a C string returned by other FFI functions. |
 
-## Python Integration
+⚠️ **Memory Management Note**: Any string (`*mut c_char`) returned by the FFI functions (like `generate_did_ffi` or `issue_vc_ffi`) **must** be freed by passing it to `free_string` after you are done with it to prevent memory leaks.
 
-Used by both Polly and namechart via the `did_rust_wrapper` module:
+## Development
 
-```python
-# Polly
-from apps.accounts.did_rust_wrapper import generate_did, verify_vc
-
-# namechart
-from apps.users.did_rust_wrapper import generate_did, verify_vc
-```
-
-## Environment Variables
-
-```bash
-# Use Rust backend (recommended)
-DID_BACKEND=rust python manage.py runserver
-
-# Use Python backend (fallback)
-DID_BACKEND=python python manage.py runserver
-```
-
-## Architecture
-
-```
-did_rust/
-├── Cargo.toml           # Project manifest
-├── src/
-│   └── lib.rs           # FFI implementations
-├── python_wrapper/       # Python FFI helper
-├── wasm-bindings/        # WASM for web
-└── target/release/
-    └── libdid_rust.so   # Built library
-```
-
-## Dependencies
-
-- Rust 1.70+
-- `cc` crate for C FFI
-- Standard library only (no external dependencies)
+For detailed instructions on architecture, testing, contributing, and writing cross-language wrappers, please read the [Developer Guide](DEVELOPER_GUIDE.md).
 
 ## License
 
