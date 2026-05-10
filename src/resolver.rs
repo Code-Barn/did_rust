@@ -109,7 +109,7 @@ mod web_resolver_impl {
 
 #[cfg(not(feature = "http-resolver"))]
 mod web_resolver_impl {
-    pub fn resolve_web(did: &str) -> Result<super::DidDocument, String> {
+    pub fn resolve_web(_did: &str) -> Result<super::DidDocument, String> {
         Err("did:web resolution requires the 'http-resolver' feature (not available in WASM target)".into())
     }
 }
