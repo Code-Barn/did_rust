@@ -42,12 +42,14 @@ lib = ctypes.CDLL(os.path.join("path_to_release", "libdid_rust.so"))
 
 | Function | Arguments | Returns | Description |
 |----------|-----------|---------|-------------|
-| `generate_did_ffi` | `method: *const c_char` | `*mut c_char` | Generates a new DID string. Must be freed! |
-| `verify_vc_ffi` | `vc: *const c_char` | `bool` | Verifies a given VC JSON string. |
-| `issue_vc_ffi` | `credential, did, key: *const c_char` | `*mut c_char` | Issues a new VC. Must be freed! |
+| `generate_did_ffi` | `method: *const c_char` | `*mut c_char` | Generates a `did:key` with a new ed25519 keypair. Returns JSON with `did` and `private_key_base58`. Must be freed! Note: `method` parameter is currently unused. |
+| `verify_vc_ffi` | `vc: *const c_char` | `bool` | Verifies a VC JSON string. Returns `true`/`false` (no error details). |
+| `verify_vp_ffi` | `vp: *const c_char` | `*mut c_char` | Verifies a Verifiable Presentation JSON string (including embedded VCs). Returns JSON `{"valid": true/false, "error": "..."}`. Must be freed! |
+| `issue_vc_ffi` | `credential, did, key: *const c_char` | `*mut c_char` | Issues a new VC by signing with the provided private key. Must be freed! |
+| `resolve_did_ffi` | `did: *const c_char` | `*mut c_char` | Resolves a DID to a DID Document (supports `did:key`, `did:web`). Must be freed! |
 | `free_string` | `ptr: *mut c_char` | `()` | Frees a C string returned by other FFI functions. |
 
-⚠️ **Memory Management Note**: Any string (`*mut c_char`) returned by the FFI functions (like `generate_did_ffi` or `issue_vc_ffi`) **must** be freed by passing it to `free_string` after you are done with it to prevent memory leaks.
+⚠️ **Memory Management Note**: Any string (`*mut c_char`) returned by the FFI functions (`generate_did_ffi`, `verify_vp_ffi`, `issue_vc_ffi`, `resolve_did_ffi`) **must** be freed by passing it to `free_string` after you are done with it to prevent memory leaks.
 
 ## Development
 
