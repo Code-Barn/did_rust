@@ -72,14 +72,30 @@ Three implementations exist:
 
 The top-level `resolve(did)` function dispatches to the correct resolver based on the DID method prefix.
 
+### JSON Response Envelope (Verification Functions)
+
+All verification functions (`verify_vc`, `verify_vp`) return a uniform JSON envelope across all three layers (Rust API, FFI, WASM):
+
+```json
+{"valid": bool, "error": "...", "details": {}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `valid` | `bool` | `true` if the credential/presentation passes all checks, `false` otherwise |
+| `error` | `string` | Human-readable error description when `valid` is `false`; empty string when `valid` is `true` |
+| `details` | `object` | Reserved for future structured verification details. Currently always an empty object `{}` |
+
+This envelope ensures consistent error handling across all binding layers — callers in Python, JavaScript, or Rust all parse the same JSON structure to determine verification outcomes.
+
 ### Public Rust API
 
 In addition to FFI and WASM, the library exposes a pure Rust API for direct consumption by other Rust crates (via `rlib`):
 
 ```rust
 pub fn generate_did(method: &str) -> Result<String, String>
-pub fn verify_vc(vc_json: &str) -> String
-pub fn verify_vp(vp_json: &str) -> String
+pub fn verify_vc(vc_json: &str) -> String       // returns JSON envelope
+pub fn verify_vp(vp_json: &str) -> String       // returns JSON envelope
 pub fn issue_vc(credential_json: &str, did: &str, key_b58: &str) -> Result<String, String>
 pub fn resolve_did(did_str: &str) -> Result<String, String>
 ```
@@ -315,13 +331,20 @@ else:
 
 ## WASM Build & Usage
 
-Building for browser/WASM:
+Building for WASM targets:
 
 ```bash
+# For bundler-based projects (webpack, rollup, vite)
+wasm-pack build --target bundler --no-default-features --features wasm
+
+# For native ES modules in browsers
 wasm-pack build --target web --no-default-features --features wasm
+
+# For Node.js
+wasm-pack build --target nodejs --no-default-features --features wasm
 ```
 
-This produces a `.wasm` file and JavaScript glue in `pkg/`. The WASM build excludes `reqwest` (blocking HTTP is unavailable in browsers), so `did:web` resolution is not supported — only `did:key` resolution works.
+All three targets produce a `.wasm` file and JavaScript glue in `pkg/`. The WASM build excludes `reqwest` (blocking HTTP is unavailable in browsers), so `did:web` resolution is not supported — only `did:key` resolution works.
 
 ### WASM API
 

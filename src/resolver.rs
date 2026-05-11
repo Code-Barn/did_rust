@@ -70,35 +70,34 @@ mod web_resolver_impl {
             .expect("Failed to build HTTP client")
     });
 
+    pub fn build_did_web_url(did: &str) -> Result<String, String> {
+        let without_prefix = did.strip_prefix("did:web:").ok_or("Not a did:web")?;
+        let parts: Vec<&str> = without_prefix.split(':').collect();
+        if parts.is_empty() {
+            return Err("Invalid did:web".into());
+        }
+        let domain = parts[0];
+        Ok(if parts.len() == 1 {
+            format!("https://{}/.well-known/did.json", domain)
+        } else {
+            let path = parts[1..].join("/");
+            format!("https://{}/{}/did.json", domain, path)
+        })
+    }
+
+    pub fn fetch_did_document(url: &str) -> Result<DidDocument, String> {
+        let response = HTTP_CLIENT.get(url).send().map_err(|e| e.to_string())?;
+        if !response.status().is_success() {
+            return Err(format!("HTTP error {} fetching {}", response.status(), url));
+        }
+        response.json().map_err(|e| e.to_string())
+    }
+
     pub struct WebResolver;
     impl DidResolver for WebResolver {
         fn resolve(&self, did: &str) -> Result<DidDocument, String> {
-            let without_prefix = did.strip_prefix("did:web:").ok_or("Not a did:web")?;
-            let parts: Vec<&str> = without_prefix.split(':').collect();
-
-            if parts.is_empty() {
-                return Err("Invalid did:web".into());
-            }
-
-            let domain = parts[0];
-            let url = if parts.len() == 1 {
-                format!("https://{}/.well-known/did.json", domain)
-            } else {
-                let path = parts[1..].join("/");
-                format!("https://{}/{}/did.json", domain, path)
-            };
-
-            let response = HTTP_CLIENT.get(&url).send().map_err(|e| e.to_string())?;
-            if !response.status().is_success() {
-                return Err(format!(
-                    "Failed to fetch did:web from {}: {}",
-                    url,
-                    response.status()
-                ));
-            }
-
-            let doc: DidDocument = response.json().map_err(|e| e.to_string())?;
-            Ok(doc)
+            let url = build_did_web_url(did)?;
+            fetch_did_document(&url)
         }
     }
 
@@ -107,12 +106,87 @@ mod web_resolver_impl {
     }
 }
 
+#[cfg(test)]
+#[cfg(feature = "http-resolver")]
+mod web_resolver_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    #[test]
+    fn test_build_did_web_url_well_known() {
+        let url = web_resolver_impl::build_did_web_url("did:web:example.com").unwrap();
+        assert_eq!(url, "https://example.com/.well-known/did.json");
+    }
+
+    #[test]
+    fn test_build_did_web_url_path() {
+        let url = web_resolver_impl::build_did_web_url("did:web:example:user:alice").unwrap();
+        assert_eq!(url, "https://example/user/alice/did.json");
+    }
+
+    #[test]
+    fn test_build_did_web_url_invalid() {
+        assert!(web_resolver_impl::build_did_web_url("did:key:zabc").is_err());
+    }
+
+    #[test]
+    fn test_fetch_did_document_mock_http() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let mock_doc = serde_json::json!({
+            "id": "did:web:localhost",
+            "verificationMethod": [{
+                "id": "did:web:localhost#keys-1",
+                "type": "Ed25519VerificationKey2018",
+                "controller": "did:web:localhost",
+                "publicKeyBase58": "8J5gHnFgN7iNfs3vPVnB6Kn3Eq3KxYKTKFmQHMGzqPnH",
+                "publicKeyMultibase": "z6MkkJf3fTJFJ1yVPfBLFmK8PHKxYBvGJzQb3nD1JnKj"
+            }]
+        });
+
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                if let Ok(mut s) = stream {
+                    let mut buf = [0u8; 4096];
+                    let _ = s.read(&mut buf);
+                    let body = mock_doc.to_string();
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = s.write_all(response.as_bytes());
+                    let _ = s.flush();
+                }
+                break;
+            }
+        });
+
+        let url = format!("http://127.0.0.1:{}", port);
+        let doc = web_resolver_impl::fetch_did_document(&url).unwrap();
+        assert_eq!(doc.id, "did:web:localhost");
+        assert_eq!(doc.verification_method.len(), 1);
+        assert_eq!(doc.verification_method[0].controller, "did:web:localhost");
+    }
+}
+
 #[cfg(not(feature = "http-resolver"))]
 mod web_resolver_impl {
     pub fn resolve_web(_did: &str) -> Result<super::DidDocument, String> {
         Err("did:web resolution requires the 'http-resolver' feature (not available in WASM target)".into())
     }
+
+    pub fn build_did_web_url(did: &str) -> Result<String, String> {
+        Err(format!("did:web URL construction requires 'http-resolver' feature: {}", did))
+    }
 }
+
+#[cfg(feature = "http-resolver")]
+pub use web_resolver_impl::build_did_web_url;
+#[cfg(not(feature = "http-resolver"))]
+pub use web_resolver_impl::build_did_web_url;
 
 pub struct IpfsResolver;
 impl DidResolver for IpfsResolver {

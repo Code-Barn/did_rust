@@ -669,4 +669,92 @@ mod tests {
         assert!(res["error"].as_str().unwrap().contains("Invalid JSON"));
         free_string(res_ptr);
     }
+
+    #[test]
+    fn test_serde_json_preserve_order_stable_serialization() {
+        let json_str = r#"{"z_last":1,"a_first":2,"m_middle":3}"#;
+        let v1: Value = serde_json::from_str(json_str).unwrap();
+        let s1 = serde_json::to_string(&v1).unwrap();
+
+        let v2: Value = serde_json::from_str(json_str).unwrap();
+        let s2 = serde_json::to_string(&v2).unwrap();
+
+        assert_eq!(s1, s2, "preserve_order: same input must produce same serialized output");
+
+        assert_eq!(s1, r#"{"z_last":1,"a_first":2,"m_middle":3}"#,
+            "preserve_order: key insertion order must be preserved from parsed JSON");
+
+        let v3: Value = serde_json::from_str(r#"{"a_first":2,"m_middle":3,"z_last":1}"#).unwrap();
+        let s3 = serde_json::to_string(&v3).unwrap();
+        assert_eq!(s3, r#"{"a_first":2,"m_middle":3,"z_last":1}"#,
+            "preserve_order: different insertion order must produce different serialized output");
+    }
+
+    #[test]
+    fn test_preserve_order_stable_signature() {
+        let did_info: Value = serde_json::from_str(
+            unsafe { CStr::from_ptr(generate_did_ffi(std::ptr::null())) }
+                .to_str()
+                .unwrap(),
+        )
+        .unwrap();
+        let did = did_info["did"].as_str().unwrap();
+        let key = did_info["private_key_base58"].as_str().unwrap();
+
+        let cred = json!({
+            "credentialSubject": { "id": "did:example:stable", "claim": "preserve_order" }
+        })
+        .to_string();
+
+        let vc_ptr1 = issue_vc_ffi(
+            CString::new(cred.clone()).unwrap().as_ptr(),
+            CString::new(did).unwrap().as_ptr(),
+            CString::new(key).unwrap().as_ptr(),
+        );
+        let vc1 = unsafe { CStr::from_ptr(vc_ptr1) }.to_str().unwrap().to_owned();
+        free_string(vc_ptr1);
+
+        let vc_ptr2 = issue_vc_ffi(
+            CString::new(cred).unwrap().as_ptr(),
+            CString::new(did).unwrap().as_ptr(),
+            CString::new(key).unwrap().as_ptr(),
+        );
+        let vc2 = unsafe { CStr::from_ptr(vc_ptr2) }.to_str().unwrap().to_owned();
+        free_string(vc_ptr2);
+
+        assert_eq!(vc1, vc2, "identical inputs must produce identical VC (stable signature)");
+
+        let v1: Value = serde_json::from_str(&vc1).unwrap();
+        let proof1 = v1["proof"]["signatureValue"].as_str().unwrap().to_owned();
+        let v2: Value = serde_json::from_str(&vc2).unwrap();
+        let proof2 = v2["proof"]["signatureValue"].as_str().unwrap().to_owned();
+        assert_eq!(proof1, proof2, "signatures must be identical for same payload");
+    }
+
+    #[test]
+    fn test_resolver_did_key_resolve() {
+        let did_str = generate_did("key").unwrap();
+        let parsed: Value = serde_json::from_str(&did_str).unwrap();
+        let did = parsed["did"].as_str().unwrap();
+        let doc = resolver::resolve(did).unwrap();
+        assert_eq!(doc.id, did);
+        assert_eq!(doc.verification_method.len(), 1);
+        assert_eq!(doc.verification_method[0].controller, did);
+    }
+
+    #[test]
+    #[cfg(feature = "http-resolver")]
+    fn test_build_did_web_urls() {
+        assert_eq!(
+            crate::resolver::build_did_web_url("did:web:example.com").unwrap(),
+            "https://example.com/.well-known/did.json"
+        );
+        assert_eq!(
+            crate::resolver::build_did_web_url("did:web:example:user:alice").unwrap(),
+            "https://example/user/alice/did.json"
+        );
+        assert!(
+            crate::resolver::build_did_web_url("did:key:zabc").is_err()
+        );
+    }
 }
