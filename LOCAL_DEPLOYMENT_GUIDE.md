@@ -16,7 +16,7 @@ This guide provides instructions for running all 5 repositories locally on a Mac
   - `REDIS_URL=redis://127.0.0.1:6379/1`
 
 - **OIDC Clients Registered**:
-  - Project Alpha (562401) - already existed
+  - WUN Service (562401) - legacy client ID, now using wun-client
   - WUN Service (wun-client) - registered with redirect URI http://localhost:8001/openid/callback/
   - Polly Django (polly-django) - registered with redirect URI http://localhost:8002/openid/callback/
 
