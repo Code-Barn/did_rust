@@ -1,2 +1,19 @@
 /target
 .~lock.*
+
+# IDE & editor state
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Local config & environment
+.env
+.env.*
+*.local
+
+# Key material
+*.pem
+*.key
