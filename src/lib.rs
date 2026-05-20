@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 Byers Brands, LLC
+ * Copyright (C) 2026 David Byers dba Byers Brands
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -70,22 +70,16 @@ pub struct VerifiablePresentation {
     pub proof: Option<Proof>,
 }
 
-fn internal_verify_signature(
-    payload_bytes: &[u8],
-    sig_b58: &str,
-    did: &str,
-) -> Result<(), String> {
+fn internal_verify_signature(payload_bytes: &[u8], sig_b58: &str, did: &str) -> Result<(), String> {
     let sig_bytes = bs58::decode(sig_b58)
         .into_vec()
         .map_err(|_| "Invalid base58 signature")?;
     if sig_bytes.len() != 64 {
         return Err("Invalid signature length".into());
     }
-    let signature =
-        Signature::from_slice(&sig_bytes).map_err(|_| "Invalid signature format")?;
+    let signature = Signature::from_slice(&sig_bytes).map_err(|_| "Invalid signature format")?;
 
-    let did_doc =
-        resolver::resolve(did).map_err(|e| format!("DID resolution failed: {}", e))?;
+    let did_doc = resolver::resolve(did).map_err(|e| format!("DID resolution failed: {}", e))?;
 
     for method in did_doc.verification_method {
         let pub_key_bytes = if let Some(b58) = method.public_key_base58 {
@@ -298,8 +292,8 @@ pub fn verify_vp(vp_json: &str) -> String {
 }
 
 pub fn issue_vc(credential_json: &str, did: &str, key_b58: &str) -> Result<String, String> {
-    let mut vc: Value = serde_json::from_str(credential_json)
-        .map_err(|_| "Invalid credential JSON".to_string())?;
+    let mut vc: Value =
+        serde_json::from_str(credential_json).map_err(|_| "Invalid credential JSON".to_string())?;
 
     vc.as_object_mut()
         .ok_or_else(|| "Credential is not an object".to_string())?
@@ -501,13 +495,19 @@ mod tests {
         let vc_ptr = issue_vc_ffi(cred_c.as_ptr(), did_c.as_ptr(), key_c.as_ptr());
         assert!(!vc_ptr.is_null());
 
-        let vc_str = unsafe { CStr::from_ptr(vc_ptr) }.to_str().unwrap().to_owned();
+        let vc_str = unsafe { CStr::from_ptr(vc_ptr) }
+            .to_str()
+            .unwrap()
+            .to_owned();
         println!("VC: {}", vc_str);
 
         let vc_c = CString::new(vc_str).unwrap();
         let res_ptr = verify_vc_ffi(vc_c.as_ptr());
         assert!(!res_ptr.is_null());
-        let res_str = unsafe { CStr::from_ptr(res_ptr) }.to_str().unwrap().to_owned();
+        let res_str = unsafe { CStr::from_ptr(res_ptr) }
+            .to_str()
+            .unwrap()
+            .to_owned();
         let res: Value = serde_json::from_str(&res_str).unwrap();
         assert!(
             res["valid"].as_bool().unwrap(),
@@ -535,7 +535,10 @@ mod tests {
         )
         .unwrap();
         let issuer_did = issuer_info["did"].as_str().unwrap().to_owned();
-        let issuer_key = issuer_info["private_key_base58"].as_str().unwrap().to_owned();
+        let issuer_key = issuer_info["private_key_base58"]
+            .as_str()
+            .unwrap()
+            .to_owned();
 
         let holder_info: Value = serde_json::from_str(
             unsafe { CStr::from_ptr(generate_did_ffi(std::ptr::null())) }
@@ -544,7 +547,10 @@ mod tests {
         )
         .unwrap();
         let holder_did = holder_info["did"].as_str().unwrap().to_owned();
-        let holder_key = holder_info["private_key_base58"].as_str().unwrap().to_owned();
+        let holder_key = holder_info["private_key_base58"]
+            .as_str()
+            .unwrap()
+            .to_owned();
 
         let cred = json!({
             "credentialSubject": { "id": holder_did, "membership": "Gold" }
@@ -592,7 +598,10 @@ mod tests {
         let vp_json = vp.to_string();
         let vp_c = CString::new(vp_json).unwrap();
         let res_ptr = verify_vp_ffi(vp_c.as_ptr());
-        let res_str = unsafe { CStr::from_ptr(res_ptr) }.to_str().unwrap().to_owned();
+        let res_str = unsafe { CStr::from_ptr(res_ptr) }
+            .to_str()
+            .unwrap()
+            .to_owned();
         let res_val: Value = serde_json::from_str(&res_str).unwrap();
 
         assert!(
@@ -658,13 +667,14 @@ mod tests {
             CString::new(did).unwrap().as_ptr(),
             CString::new(priv_key).unwrap().as_ptr(),
         );
-        let vc_str = unsafe { CStr::from_ptr(vc_ptr) }.to_str().unwrap().to_owned();
+        let vc_str = unsafe { CStr::from_ptr(vc_ptr) }
+            .to_str()
+            .unwrap()
+            .to_owned();
 
         let res_ptr = verify_vc_ffi(CString::new(vc_str.as_str()).unwrap().as_ptr());
-        let res: Value = serde_json::from_str(
-            unsafe { CStr::from_ptr(res_ptr) }.to_str().unwrap(),
-        )
-        .unwrap();
+        let res: Value =
+            serde_json::from_str(unsafe { CStr::from_ptr(res_ptr) }.to_str().unwrap()).unwrap();
         assert!(!res["valid"].as_bool().unwrap());
         assert_eq!(res["error"], "VC is expired");
 
@@ -678,10 +688,8 @@ mod tests {
         let vc_str = "not valid json";
         let vc_c = CString::new(vc_str).unwrap();
         let res_ptr = verify_vc_ffi(vc_c.as_ptr());
-        let res: Value = serde_json::from_str(
-            unsafe { CStr::from_ptr(res_ptr) }.to_str().unwrap(),
-        )
-        .unwrap();
+        let res: Value =
+            serde_json::from_str(unsafe { CStr::from_ptr(res_ptr) }.to_str().unwrap()).unwrap();
         assert!(!res["valid"].as_bool().unwrap());
         assert!(res["error"].as_str().unwrap().contains("Invalid JSON"));
         free_string(res_ptr);
@@ -696,15 +704,22 @@ mod tests {
         let v2: Value = serde_json::from_str(json_str).unwrap();
         let s2 = serde_json::to_string(&v2).unwrap();
 
-        assert_eq!(s1, s2, "preserve_order: same input must produce same serialized output");
+        assert_eq!(
+            s1, s2,
+            "preserve_order: same input must produce same serialized output"
+        );
 
-        assert_eq!(s1, r#"{"z_last":1,"a_first":2,"m_middle":3}"#,
-            "preserve_order: key insertion order must be preserved from parsed JSON");
+        assert_eq!(
+            s1, r#"{"z_last":1,"a_first":2,"m_middle":3}"#,
+            "preserve_order: key insertion order must be preserved from parsed JSON"
+        );
 
         let v3: Value = serde_json::from_str(r#"{"a_first":2,"m_middle":3,"z_last":1}"#).unwrap();
         let s3 = serde_json::to_string(&v3).unwrap();
-        assert_eq!(s3, r#"{"a_first":2,"m_middle":3,"z_last":1}"#,
-            "preserve_order: different insertion order must produce different serialized output");
+        assert_eq!(
+            s3, r#"{"a_first":2,"m_middle":3,"z_last":1}"#,
+            "preserve_order: different insertion order must produce different serialized output"
+        );
     }
 
     #[test]
@@ -728,7 +743,10 @@ mod tests {
             CString::new(did).unwrap().as_ptr(),
             CString::new(key).unwrap().as_ptr(),
         );
-        let vc1 = unsafe { CStr::from_ptr(vc_ptr1) }.to_str().unwrap().to_owned();
+        let vc1 = unsafe { CStr::from_ptr(vc_ptr1) }
+            .to_str()
+            .unwrap()
+            .to_owned();
         free_string(vc_ptr1);
 
         let vc_ptr2 = issue_vc_ffi(
@@ -736,16 +754,25 @@ mod tests {
             CString::new(did).unwrap().as_ptr(),
             CString::new(key).unwrap().as_ptr(),
         );
-        let vc2 = unsafe { CStr::from_ptr(vc_ptr2) }.to_str().unwrap().to_owned();
+        let vc2 = unsafe { CStr::from_ptr(vc_ptr2) }
+            .to_str()
+            .unwrap()
+            .to_owned();
         free_string(vc_ptr2);
 
-        assert_eq!(vc1, vc2, "identical inputs must produce identical VC (stable signature)");
+        assert_eq!(
+            vc1, vc2,
+            "identical inputs must produce identical VC (stable signature)"
+        );
 
         let v1: Value = serde_json::from_str(&vc1).unwrap();
         let proof1 = v1["proof"]["signatureValue"].as_str().unwrap().to_owned();
         let v2: Value = serde_json::from_str(&vc2).unwrap();
         let proof2 = v2["proof"]["signatureValue"].as_str().unwrap().to_owned();
-        assert_eq!(proof1, proof2, "signatures must be identical for same payload");
+        assert_eq!(
+            proof1, proof2,
+            "signatures must be identical for same payload"
+        );
     }
 
     #[test]
@@ -770,8 +797,6 @@ mod tests {
             crate::resolver::build_did_web_url("did:web:example:user:alice").unwrap(),
             "https://example/user/alice/did.json"
         );
-        assert!(
-            crate::resolver::build_did_web_url("did:key:zabc").is_err()
-        );
+        assert!(crate::resolver::build_did_web_url("did:key:zabc").is_err());
     }
 }

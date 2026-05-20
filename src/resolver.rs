@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 Byers Brands, LLC
+ * Copyright (C) 2026 David Byers dba Byers Brands
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -196,7 +196,10 @@ mod web_resolver_impl {
     }
 
     pub fn build_did_web_url(did: &str) -> Result<String, String> {
-        Err(format!("did:web URL construction requires 'http-resolver' feature: {}", did))
+        Err(format!(
+            "did:web URL construction requires 'http-resolver' feature: {}",
+            did
+        ))
     }
 }
 
