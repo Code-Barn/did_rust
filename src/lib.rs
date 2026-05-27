@@ -49,8 +49,8 @@ pub struct Proof {
     pub type_: String,
     #[serde(rename = "verificationMethod", default)]
     pub verification_method: String,
-    #[serde(rename = "signatureValue")]
-    pub signature_value: String,
+    #[serde(rename = "proofValue")]
+    pub proof_value: String,
     pub created: Option<String>,
     pub challenge: Option<String>,
     pub domain: Option<String>,
@@ -70,10 +70,9 @@ pub struct VerifiablePresentation {
     pub proof: Option<Proof>,
 }
 
-fn internal_verify_signature(payload_bytes: &[u8], sig_b58: &str, did: &str) -> Result<(), String> {
-    let sig_bytes = bs58::decode(sig_b58)
-        .into_vec()
-        .map_err(|_| "Invalid base58 signature")?;
+fn internal_verify_signature(payload_bytes: &[u8], sig_hex: &str, did: &str) -> Result<(), String> {
+    let sig_bytes = hex::decode(sig_hex)
+        .map_err(|_| "Invalid hex signature".to_string())?;
     if sig_bytes.len() != 64 {
         return Err("Invalid signature length".into());
     }
@@ -132,10 +131,10 @@ fn internal_verify_vc(vc: &Value) -> Result<(), String> {
         }
     }
 
-    let sig_b58 = proof
-        .get("signatureValue")
+    let sig_hex = proof
+        .get("proofValue")
         .and_then(|s| s.as_str())
-        .ok_or_else(|| "Missing signatureValue".to_string())?;
+        .ok_or_else(|| "Missing proofValue".to_string())?;
 
     let payload_value = {
         let mut map = vc.as_object().cloned().unwrap_or_default();
@@ -146,7 +145,7 @@ fn internal_verify_vc(vc: &Value) -> Result<(), String> {
     let payload_bytes =
         serde_json::to_vec(&payload_value).map_err(|_| "Failed to serialize VC payload")?;
 
-    internal_verify_signature(&payload_bytes, sig_b58, issuer_did)
+    internal_verify_signature(&payload_bytes, sig_hex, issuer_did)
         .map_err(|_| "VC Signature Failure".into())
 }
 
@@ -231,12 +230,12 @@ pub fn verify_vp(vp_json: &str) -> String {
         }
     };
 
-    let sig_b58 = match proof.get("signatureValue").and_then(|s| s.as_str()) {
+    let sig_hex = match proof.get("proofValue").and_then(|s| s.as_str()) {
         Some(s) => s,
         None => {
             return json!({
                 "valid": false,
-                "error": "VP proof missing signatureValue",
+                "error": "VP proof missing proofValue",
                 "details": {}
             })
             .to_string()
@@ -260,7 +259,7 @@ pub fn verify_vp(vp_json: &str) -> String {
         }
     };
 
-    if internal_verify_signature(&payload_bytes, sig_b58, holder_did).is_err() {
+    if internal_verify_signature(&payload_bytes, sig_hex, holder_did).is_err() {
         return json!({"valid": false, "error": "VP Signature Failure", "details": {}}).to_string();
     }
 
@@ -315,7 +314,7 @@ pub fn issue_vc(credential_json: &str, did: &str, key_b58: &str) -> Result<Strin
         serde_json::to_vec(&vc).map_err(|_| "Failed to serialize payload".to_string())?;
 
     let signature = signing_key.sign(&payload_bytes);
-    let sig_b58 = bs58::encode(signature.to_bytes()).into_string();
+    let sig_hex = hex::encode(signature.to_bytes());
 
     vc.as_object_mut()
         .ok_or_else(|| "VC is not an object".to_string())?
@@ -324,7 +323,7 @@ pub fn issue_vc(credential_json: &str, did: &str, key_b58: &str) -> Result<Strin
             json!({
                 "type": "Ed25519Signature2018",
                 "verificationMethod": format!("{}#keys-1", did),
-                "signatureValue": sig_b58
+                "proofValue": sig_hex
             }),
         );
 
@@ -582,7 +581,7 @@ mod tests {
         arr.copy_from_slice(&holder_key_bytes);
         let signing_key = SigningKey::from_bytes(&arr);
         let signature = signing_key.sign(&payload_bytes);
-        let sig_b58 = bs58::encode(signature.to_bytes()).into_string();
+        let sig_hex = hex::encode(signature.to_bytes());
 
         if let Value::Object(ref mut map) = vp {
             map.insert(
@@ -590,7 +589,7 @@ mod tests {
                 json!({
                     "type": "Ed25519Signature2018",
                     "verificationMethod": format!("{}#keys-1", holder_info["did"].as_str().unwrap()),
-                    "signatureValue": sig_b58
+                    "proofValue": sig_hex
                 }),
             );
         }
@@ -766,9 +765,9 @@ mod tests {
         );
 
         let v1: Value = serde_json::from_str(&vc1).unwrap();
-        let proof1 = v1["proof"]["signatureValue"].as_str().unwrap().to_owned();
+        let proof1 = v1["proof"]["proofValue"].as_str().unwrap().to_owned();
         let v2: Value = serde_json::from_str(&vc2).unwrap();
-        let proof2 = v2["proof"]["signatureValue"].as_str().unwrap().to_owned();
+        let proof2 = v2["proof"]["proofValue"].as_str().unwrap().to_owned();
         assert_eq!(
             proof1, proof2,
             "signatures must be identical for same payload"
