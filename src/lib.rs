@@ -330,6 +330,53 @@ pub fn issue_vc(credential_json: &str, did: &str, key_b58: &str) -> Result<Strin
     Ok(vc.to_string())
 }
 
+pub fn issue_vp(
+    vc_json: &str,
+    holder_did: &str,
+    challenge: &str,
+    key_b58: &str,
+) -> Result<String, String> {
+    let vc: Value =
+        serde_json::from_str(vc_json).map_err(|_| "Invalid VC JSON".to_string())?;
+
+    let mut vp = serde_json::json!({
+        "@context": ["https://www.w3.org/2018/credentials/v1"],
+        "type": ["VerifiablePresentation"],
+        "holder": holder_did,
+        "challenge": challenge,
+        "verifiableCredential": [vc]
+    });
+
+    let key_bytes = bs58::decode(key_b58)
+        .into_vec()
+        .map_err(|_| "Invalid base58 private key".to_string())?;
+    if key_bytes.len() != 32 {
+        return Err("Invalid private key length".to_string());
+    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&key_bytes);
+    let signing_key = SigningKey::from_bytes(&arr);
+
+    let payload_bytes =
+        serde_json::to_vec(&vp).map_err(|_| "Failed to serialize VP payload".to_string())?;
+    let signature = signing_key.sign(&payload_bytes);
+    let sig_hex = hex::encode(signature.to_bytes());
+
+    vp.as_object_mut()
+        .ok_or_else(|| "VP is not an object".to_string())?
+        .insert(
+            "proof".to_string(),
+            json!({
+                "type": "Ed25519Signature2018",
+                "verificationMethod": format!("{}#keys-1", holder_did),
+                "proofValue": sig_hex,
+                "challenge": challenge
+            }),
+        );
+
+    Ok(vp.to_string())
+}
+
 pub fn resolve_did(did_str: &str) -> Result<String, String> {
     match resolver::resolve(did_str) {
         Ok(doc) => serde_json::to_string(&doc).map_err(|e| e.to_string()),
@@ -402,6 +449,27 @@ pub extern "C" fn issue_vc_ffi(
     let key_str = unsafe { CStr::from_ptr(key_ptr) }.to_str().unwrap_or("");
 
     match issue_vc(credential_str, did_str, key_str) {
+        Ok(s) => c_string(s),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn issue_vp_ffi(
+    vc_ptr: *const c_char,
+    holder_ptr: *const c_char,
+    challenge_ptr: *const c_char,
+    key_ptr: *const c_char,
+) -> *mut c_char {
+    if vc_ptr.is_null() || holder_ptr.is_null() || challenge_ptr.is_null() || key_ptr.is_null() {
+        return ptr::null_mut();
+    }
+    let vc_str = unsafe { CStr::from_ptr(vc_ptr) }.to_str().unwrap_or("{}");
+    let holder_str = unsafe { CStr::from_ptr(holder_ptr) }.to_str().unwrap_or("");
+    let challenge_str = unsafe { CStr::from_ptr(challenge_ptr) }.to_str().unwrap_or("");
+    let key_str = unsafe { CStr::from_ptr(key_ptr) }.to_str().unwrap_or("");
+
+    match issue_vp(vc_str, holder_str, challenge_str, key_str) {
         Ok(s) => c_string(s),
         Err(_) => ptr::null_mut(),
     }
