@@ -106,7 +106,7 @@ pub fn resolve_did(did_str: &str) -> Result<String, String>
 pub struct Proof {
     pub type_: String,
     pub verification_method: String,
-    pub signature_value: String,
+    pub proof_value: String,
     pub created: Option<String>,
     pub challenge: Option<String>,
     pub domain: Option<String>,
