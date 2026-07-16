@@ -15,5 +15,6 @@
 - [ ] `http-resolver` feature (reqwest) is default — consider making it opt-in to reduce binary size for WASM targets.
 - [ ] Review `wasm-bindings/` directory for WASM build health.
 - [ ] Python wrapper (`python_wrapper/`) — status and maintenance needs.
+- [ ] **Ecosystem Doc Organization:** Standardize repo layout to match iyou_wun precedent — root: `AGENT.md`, `README.md`; `docs/`: `DEVELOPER_GUIDE.md`, `DESIGN_DOC.md`, `TODO.md`, `ecosystem_shared/`, `archive/`.
 
 ---
