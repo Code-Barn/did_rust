@@ -55,6 +55,25 @@ lib = ctypes.CDLL(os.path.join("path_to_release", "libdid_rust.so"))
 
 For detailed instructions on architecture, testing, contributing, and writing cross-language wrappers, please read the [Developer Guide](DID_DEVELOPER_GUIDE.md).
 
+## Submodule Parity Guard (SEC-003)
+
+This library is consumed by `iyou_idp`, `iyou_home` (git submodules) and `iyou_mobile` (Cargo path dependency). Mixed commit hashes across those consumers cause silent serialization mismatch and handshake failures, so alignment is enforced by tooling:
+
+```bash
+bash scripts/check_did_submodules.sh            # exit 0 = aligned, 1 = drift
+bash scripts/install_hooks.sh                   # enable pre-push orphan protection
+bash scripts/test_check_did_submodules.sh       # fixture self-test
+```
+
+After changing `did_rust`, sync consumers with:
+
+```bash
+git -C ../iyou_idp  submodule update --remote --merge crates/did_rust
+git -C ../iyou_home submodule update --remote --merge libs/did_rust
+```
+
+Full invariants, CI gates, and troubleshooting: [docs/strategy/SECURITY_HARDENING.md](docs/strategy/SECURITY_HARDENING.md).
+
 ## License
 
 MIT

@@ -1,0 +1,70 @@
+name: did-rust-parity
+
+# SEC-003 — did_rust submodule parity guard.
+#
+# Blocks merges, release builds and remote deployments whenever iyou_idp,
+# iyou_home or iyou_mobile resolve a different did_rust commit than the
+# canonical checkout. See docs/strategy/SECURITY_HARDENING.md.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      enforce:
+        description: "Fail live parity job even outside releases"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: did-rust-parity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  selftest:
+    name: Parity guard self-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fixture self-test (aligned -> 0, drifted -> 1)
+        run: bash scripts/test_check_did_submodules.sh
+
+  parity-live:
+    # The consumer repositories live on the LAN NAS (ssh://iyou@qnap), so the
+    # live check must run on a self-hosted runner that has the CODE_BASE
+    # workspace checked out. Hosted runners can only run the selftest above.
+    #
+    # Enforcement policy:
+    #   - release published            -> always enforced (blocks release)
+    #   - workflow_dispatch enforce=1  -> enforced on demand
+    #   - repository variable PARITY_ENFORCE == 'true' -> always enforced
+    name: Live submodule parity (LAN consumers)
+    runs-on: [self-hosted, lan]
+    if: >-
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && inputs.enforce) ||
+      vars.PARITY_ENFORCE == 'true'
+    env:
+      PARITY_ROOT: ${{ vars.PARITY_ROOT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check did_rust commit parity across consumers
+        run: |
+          bash scripts/check_did_submodules.sh \
+            --root "${PARITY_ROOT:-$HOME/CODE_BASE}"
+
+  # Cluster deployment runners should gate every deploy on the same check.
+  # Add this as the first step of any deployment pipeline that ships binaries
+  # or artifacts derived from did_rust:
+  #
+  #   - name: SEC-003 deployment gate
+  #     run: |
+  #       bash "$CODE_BASE/did_rust/scripts/check_did_submodules.sh" \
+  #         --root "$CODE_BASE"
