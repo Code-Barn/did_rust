@@ -17,7 +17,9 @@
 
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
+pub mod crypto;
 pub mod resolver;
+pub mod vault_crypto;
 
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
@@ -28,6 +30,13 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use zeroize::Zeroizing;
+
+pub use crypto::{
+    derive_ed25519_did, derive_identity_from_prf, derive_nostr_keypair, CryptoError,
+    DerivedIdentity,
+};
+pub use vault_crypto::{decrypt_vault_payload, encrypt_vault_payload};
 
 fn c_string(s: String) -> *mut c_char {
     match CString::new(s) {
@@ -71,8 +80,7 @@ pub struct VerifiablePresentation {
 }
 
 fn internal_verify_signature(payload_bytes: &[u8], sig_hex: &str, did: &str) -> Result<(), String> {
-    let sig_bytes = hex::decode(sig_hex)
-        .map_err(|_| "Invalid hex signature".to_string())?;
+    let sig_bytes = hex::decode(sig_hex).map_err(|_| "Invalid hex signature".to_string())?;
     if sig_bytes.len() != 64 {
         return Err("Invalid signature length".into());
     }
@@ -336,8 +344,7 @@ pub fn issue_vp(
     challenge: &str,
     key_b58: &str,
 ) -> Result<String, String> {
-    let vc: Value =
-        serde_json::from_str(vc_json).map_err(|_| "Invalid VC JSON".to_string())?;
+    let vc: Value = serde_json::from_str(vc_json).map_err(|_| "Invalid VC JSON".to_string())?;
 
     let mut vp = serde_json::json!({
         "@context": ["https://www.w3.org/2018/credentials/v1"],
@@ -466,7 +473,9 @@ pub extern "C" fn issue_vp_ffi(
     }
     let vc_str = unsafe { CStr::from_ptr(vc_ptr) }.to_str().unwrap_or("{}");
     let holder_str = unsafe { CStr::from_ptr(holder_ptr) }.to_str().unwrap_or("");
-    let challenge_str = unsafe { CStr::from_ptr(challenge_ptr) }.to_str().unwrap_or("");
+    let challenge_str = unsafe { CStr::from_ptr(challenge_ptr) }
+        .to_str()
+        .unwrap_or("");
     let key_str = unsafe { CStr::from_ptr(key_ptr) }.to_str().unwrap_or("");
 
     match issue_vp(vc_str, holder_str, challenge_str, key_str) {
@@ -485,6 +494,121 @@ pub extern "C" fn resolve_did_ffi(did_ptr: *const c_char) -> *mut c_char {
         Ok(s) => c_string(s),
         Err(_) => ptr::null_mut(),
     }
+}
+
+fn read_byte_slice<'a>(ptr: *const u8, len: usize) -> Option<&'a [u8]> {
+    if ptr.is_null() {
+        None
+    } else {
+        Some(unsafe { std::slice::from_raw_parts(ptr, len) })
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn derive_identity_from_prf_ffi(
+    prf_seed_ptr: *const u8,
+    seed_len: usize,
+    index: u32,
+) -> *mut c_char {
+    let envelope = match read_byte_slice(prf_seed_ptr, seed_len) {
+        None => json!({
+            "valid": false,
+            "did": "",
+            "nostr_pubkey_hex": "",
+            "error": "Null pointer to PRF seed"
+        }),
+        Some(buf) if buf.len() != 32 => json!({
+            "valid": false,
+            "did": "",
+            "nostr_pubkey_hex": "",
+            "error": format!("Invalid PRF seed length: expected 32 bytes, got {}", buf.len())
+        }),
+        Some(buf) => {
+            let mut seed = [0u8; 32];
+            seed.copy_from_slice(buf);
+            let seed = Zeroizing::new(seed);
+            match crypto::derive_identity_from_prf(&seed, index) {
+                Ok(identity) => json!({
+                    "valid": true,
+                    "did": identity.did,
+                    "nostr_pubkey_hex": identity.nostr_pubkey_hex,
+                    "error": null
+                }),
+                Err(e) => json!({
+                    "valid": false,
+                    "did": "",
+                    "nostr_pubkey_hex": "",
+                    "error": e.to_string()
+                }),
+            }
+        }
+    };
+    c_string(envelope.to_string())
+}
+
+#[no_mangle]
+pub extern "C" fn encrypt_vault_payload_ffi(
+    kek_ptr: *const u8,
+    plaintext_ptr: *const u8,
+    plaintext_len: usize,
+) -> *mut c_char {
+    let envelope = (|| -> Result<Value, String> {
+        let kek_buf = read_byte_slice(kek_ptr, 32).ok_or("Null pointer to KEK")?;
+        let plaintext =
+            read_byte_slice(plaintext_ptr, plaintext_len).ok_or("Null pointer to plaintext")?;
+        if kek_buf.len() != 32 {
+            return Err(format!(
+                "Invalid KEK length: expected 32 bytes, got {}",
+                kek_buf.len()
+            ));
+        }
+        let mut kek = [0u8; 32];
+        kek.copy_from_slice(kek_buf);
+        let kek = Zeroizing::new(kek);
+
+        let sealed = encrypt_vault_payload(&kek, plaintext).map_err(|e| e.to_string())?;
+        Ok(json!({
+            "valid": true,
+            "ciphertext_hex": hex::encode(sealed),
+            "error": null
+        }))
+    })()
+    .unwrap_or_else(|e| json!({"valid": false, "ciphertext_hex": "", "error": e}));
+    c_string(envelope.to_string())
+}
+
+#[no_mangle]
+pub extern "C" fn decrypt_vault_payload_ffi(
+    kek_ptr: *const u8,
+    ciphertext_ptr: *const u8,
+    ciphertext_len: usize,
+) -> *mut c_char {
+    let envelope = (|| -> Result<Value, String> {
+        let kek_buf = read_byte_slice(kek_ptr, 32).ok_or("Null pointer to KEK")?;
+        let ciphertext =
+            read_byte_slice(ciphertext_ptr, ciphertext_len).ok_or("Null pointer to ciphertext")?;
+        if kek_buf.len() != 32 {
+            return Err(format!(
+                "Invalid KEK length: expected 32 bytes, got {}",
+                kek_buf.len()
+            ));
+        }
+        let mut kek = [0u8; 32];
+        kek.copy_from_slice(kek_buf);
+        let kek = Zeroizing::new(kek);
+
+        let plaintext = decrypt_vault_payload(&kek, ciphertext).map_err(|e| e.to_string())?;
+        Ok(json!({
+            "valid": true,
+            "plaintext_utf8": std::str::from_utf8(&plaintext).ok(),
+            "plaintext_hex": hex::encode(plaintext),
+            "error": null
+        }))
+    })()
+    .unwrap_or_else(
+        |e| json!({"valid": false, "plaintext_utf8": null, "plaintext_hex": "", "error": e}),
+    );
+    c_string(envelope.to_string())
 }
 
 #[no_mangle]
@@ -531,6 +655,116 @@ mod wasm_api {
         match super::resolve_did(did) {
             Ok(s) => s,
             Err(e) => serde_json::json!({"error": e}).to_string(),
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn derive_identity_from_prf(seed_hex: &str, index: u32) -> String {
+        let seed = hex::decode(seed_hex).ok().and_then(|v| {
+            let mut arr = [0u8; 32];
+            if v.len() == 32 {
+                arr.copy_from_slice(&v);
+                Some(arr)
+            } else {
+                None
+            }
+        });
+        let Some(seed) = seed else {
+            return serde_json::json!({
+                "valid": false,
+                "did": "",
+                "nostr_pubkey_hex": "",
+                "error": "Invalid PRF seed: expected 32-byte hex"
+            })
+            .to_string();
+        };
+        match super::derive_identity_from_prf(&seed, index) {
+            Ok(identity) => serde_json::json!({
+                "valid": true,
+                "did": identity.did,
+                "nostr_pubkey_hex": identity.nostr_pubkey_hex,
+                "error": null
+            })
+            .to_string(),
+            Err(e) => serde_json::json!({
+                "valid": false,
+                "did": "",
+                "nostr_pubkey_hex": "",
+                "error": e.to_string()
+            })
+            .to_string(),
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn encrypt_vault_payload(kek_hex: &str, plaintext: &str) -> String {
+        let kek = hex::decode(kek_hex).ok().and_then(|v| {
+            let mut arr = [0u8; 32];
+            if v.len() == 32 {
+                arr.copy_from_slice(&v);
+                Some(arr)
+            } else {
+                None
+            }
+        });
+        let Some(kek) = kek else {
+            return serde_json::json!({
+                "valid": false,
+                "ciphertext_hex": "",
+                "error": "Invalid KEK: expected 32-byte hex"
+            })
+            .to_string();
+        };
+        match super::encrypt_vault_payload(&kek, plaintext.as_bytes()) {
+            Ok(sealed) => serde_json::json!({
+                "valid": true,
+                "ciphertext_hex": hex::encode(sealed),
+                "error": null
+            })
+            .to_string(),
+            Err(e) => {
+                serde_json::json!({"valid": false, "ciphertext_hex": "", "error": e.to_string()})
+                    .to_string()
+            }
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn decrypt_vault_payload(kek_hex: &str, ciphertext_hex: &str) -> String {
+        let kek = hex::decode(kek_hex).ok().and_then(|v| {
+            let mut arr = [0u8; 32];
+            if v.len() == 32 {
+                arr.copy_from_slice(&v);
+                Some(arr)
+            } else {
+                None
+            }
+        });
+        let ciphertext = hex::decode(ciphertext_hex);
+        let (Some(kek), Ok(ciphertext)) = (kek, ciphertext) else {
+            return serde_json::json!({
+                "valid": false,
+                "plaintext_utf8": null,
+                "plaintext_hex": "",
+                "error": "Invalid input: KEK must be 32-byte hex and ciphertext valid hex"
+            })
+            .to_string();
+        };
+        match super::decrypt_vault_payload(&kek, &ciphertext) {
+            Ok(plaintext) => serde_json::json!({
+                "valid": true,
+                "plaintext_utf8": String::from_utf8(plaintext.clone()).ok(),
+                "plaintext_hex": hex::encode(plaintext),
+                "error": null
+            })
+            .to_string(),
+            Err(e) => serde_json::json!({
+                "valid": false,
+                "plaintext_utf8": null,
+                "plaintext_hex": "",
+                "error": e.to_string()
+            })
+            .to_string(),
         }
     }
 }

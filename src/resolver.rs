@@ -123,6 +123,47 @@ mod web_resolver_impl {
     }
 }
 
+#[cfg(not(feature = "http-resolver"))]
+mod web_resolver_impl {
+    pub fn resolve_web(_did: &str) -> Result<super::DidDocument, String> {
+        Err("did:web resolution requires the 'http-resolver' feature (not available in WASM target)".into())
+    }
+
+    pub fn build_did_web_url(did: &str) -> Result<String, String> {
+        Err(format!(
+            "did:web URL construction requires 'http-resolver' feature: {}",
+            did
+        ))
+    }
+}
+
+#[cfg(feature = "http-resolver")]
+pub use web_resolver_impl::build_did_web_url;
+#[cfg(not(feature = "http-resolver"))]
+pub use web_resolver_impl::build_did_web_url;
+
+pub struct IpfsResolver;
+impl DidResolver for IpfsResolver {
+    fn resolve(&self, did: &str) -> Result<DidDocument, String> {
+        Err(format!(
+            "IPFS resolution is not yet implemented for: {}",
+            did
+        ))
+    }
+}
+
+pub fn resolve(did: &str) -> Result<DidDocument, String> {
+    if did.starts_with("did:key:") {
+        KeyResolver.resolve(did)
+    } else if did.starts_with("did:web:") {
+        web_resolver_impl::resolve_web(did)
+    } else if did.starts_with("did:ipfs:") {
+        IpfsResolver.resolve(did)
+    } else {
+        Err(format!("Unsupported DID method: {}", did))
+    }
+}
+
 #[cfg(test)]
 #[cfg(feature = "http-resolver")]
 mod web_resolver_tests {
@@ -164,20 +205,17 @@ mod web_resolver_tests {
         });
 
         thread::spawn(move || {
-            for stream in listener.incoming() {
-                if let Ok(mut s) = stream {
-                    let mut buf = [0u8; 4096];
-                    let _ = s.read(&mut buf);
-                    let body = mock_doc.to_string();
-                    let response = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
-                        body.len(),
-                        body
-                    );
-                    let _ = s.write_all(response.as_bytes());
-                    let _ = s.flush();
-                }
-                break;
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf);
+                let body = mock_doc.to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = s.write_all(response.as_bytes());
+                let _ = s.flush();
             }
         });
 
@@ -186,46 +224,5 @@ mod web_resolver_tests {
         assert_eq!(doc.id, "did:web:localhost");
         assert_eq!(doc.verification_method.len(), 1);
         assert_eq!(doc.verification_method[0].controller, "did:web:localhost");
-    }
-}
-
-#[cfg(not(feature = "http-resolver"))]
-mod web_resolver_impl {
-    pub fn resolve_web(_did: &str) -> Result<super::DidDocument, String> {
-        Err("did:web resolution requires the 'http-resolver' feature (not available in WASM target)".into())
-    }
-
-    pub fn build_did_web_url(did: &str) -> Result<String, String> {
-        Err(format!(
-            "did:web URL construction requires 'http-resolver' feature: {}",
-            did
-        ))
-    }
-}
-
-#[cfg(feature = "http-resolver")]
-pub use web_resolver_impl::build_did_web_url;
-#[cfg(not(feature = "http-resolver"))]
-pub use web_resolver_impl::build_did_web_url;
-
-pub struct IpfsResolver;
-impl DidResolver for IpfsResolver {
-    fn resolve(&self, did: &str) -> Result<DidDocument, String> {
-        Err(format!(
-            "IPFS resolution is not yet implemented for: {}",
-            did
-        ))
-    }
-}
-
-pub fn resolve(did: &str) -> Result<DidDocument, String> {
-    if did.starts_with("did:key:") {
-        KeyResolver.resolve(did)
-    } else if did.starts_with("did:web:") {
-        web_resolver_impl::resolve_web(did)
-    } else if did.starts_with("did:ipfs:") {
-        IpfsResolver.resolve(did)
-    } else {
-        Err(format!("Unsupported DID method: {}", did))
     }
 }
