@@ -11,7 +11,7 @@ The core architecture bridges a high-performance **Rust/Tauri** desktop vault wi
 
 During this intensive integration phase, the following milestones were achieved:
 
-- **The Sovereign Bridge**: Successfully implemented an OIDC authentication flow where the **iYou Home** (Desktop Signer) acts as the source of truth for the **iYou IdP** (Identity Provider).
+- **The Sovereign Bridge**: Successfully implemented an OIDC authentication flow where the **iyou_home** (Desktop Signer) acts as the source of truth for the **iyou_idp** (Identity Provider).
 
 - **Cryptographic User Mapping**: Developed a custom Django backend that maps decentralized identifiers (**DIDs**) to local User objects. This allows a user to "own" their database records across different ports and services using a single private key.
 
@@ -28,7 +28,7 @@ During this intensive integration phase, the following milestones were achieved:
 
 - **WUN (Port 8001)**: Successfully authenticates via OIDC, maintains persistent sovereign sessions, and renders decentralized feeds.
 
-- **Desktop Signer (iYou Home)**: Acts as the local "Soul" of the project, handling WebSockets and signature challenges without exposing private keys to the web.
+- **Desktop Signer (iyou_home)**: Acts as the local "Soul" of the project, handling WebSockets and signature challenges without exposing private keys to the web.
 
 
 ## 4. Strategic Goals & Roadmap
@@ -69,7 +69,7 @@ SECONDARY (next) REPORT:
 
 Strategic Report: The Sovereign Mesh Realized
 1. Executive Summary: The Vision at 19 Years
-The Omni-Social Ecosystem has transitioned from a conceptual framework to a living, rendering reality. We have successfully implemented the "Sovereign Bridge": a multi-layered architecture where a user’s identity is held in a local desktop vault (iYou Home) and project-wide permissions are handled via a decentralized OIDC provider (iYou IdP), all manifesting in a unified web interface (iYou WUN).
+The Omni-Social Ecosystem has transitioned from a conceptual framework to a living, rendering reality. We have successfully implemented the "Sovereign Bridge": a multi-layered architecture where a user’s identity is held in a local desktop vault (iyou_home) and project-wide permissions are handled via a decentralized OIDC provider (iyou_idp), all manifesting in a unified web interface (iyou_wun).
 
 The Core Mandate: "Identity is portable, Data is content-addressed, and Governance is verifiable."
 

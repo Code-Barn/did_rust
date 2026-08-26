@@ -4,7 +4,7 @@ This guide provides instructions for running all 5 repositories locally on a Mac
 
 ## Configuration Changes Made
 
-### 1. iYou IdP (iyou_idp)
+### 1. iyou_idp
 - **Settings**: `config/settings.py`
   - `ALLOWED_HOSTS = ['localhost', '127.0.0.1']`
   - `CSRF_TRUSTED_ORIGINS` includes both localhost:8000 and localhost:8001
@@ -20,7 +20,7 @@ This guide provides instructions for running all 5 repositories locally on a Mac
   - WUN Service (wun-client) - registered with redirect URI http://localhost:8001/openid/callback/
   - Polly Django (polly-django) - registered with redirect URI http://localhost:8002/openid/callback/
 
-### 2. iYou WUN (iyou_wun)
+### 2. iyou_wun
 - **Settings**: `config/settings.py`
   - `ALLOWED_HOSTS = ['localhost', '127.0.0.1']`
   - OIDC endpoints default to `http://localhost:8000`
@@ -37,7 +37,7 @@ This guide provides instructions for running all 5 repositories locally on a Mac
   - `ALLOWED_HOSTS = ["localhost", "127.0.0.1"]`
   - All OIDC endpoints updated to `http://localhost:8000`
 
-### 4. iYou Home (iyou_home)
+### 4. iyou_home
 - **WebSocket**: Already configured to `ws://127.0.0.1:9001` in `src-tauri/src/lib.rs`
 - **Login Template**: Already configured to `ws://127.0.0.1:9001` in IdP login template
 
@@ -71,14 +71,14 @@ This guide provides instructions for running all 5 repositories locally on a Mac
    redis-server
    ```
 
-2. **Start iYou IdP** (port 8000):
+2. **Start iyou_idp** (port 8000):
    ```bash
    cd iyou_idp
    . .venv/bin/activate
    python manage.py runserver 8000
    ```
 
-3. **Start iYou WUN** (port 8001):
+3. **Start iyou_wun** (port 8001):
    ```bash
    cd iyou_wun
    . .venv/bin/activate
@@ -92,7 +92,7 @@ This guide provides instructions for running all 5 repositories locally on a Mac
    python manage.py runserver 8002
    ```
 
-5. **Start iYou Home** (WebSocket on 9001):
+5. **Start iyou_home** (WebSocket on 9001):
    ```bash
    cd iyou_home
    npm run tauri dev
@@ -106,7 +106,7 @@ This guide provides instructions for running all 5 repositories locally on a Mac
 
 ### Verification
 1. Check that all services are running and accessible
-2. Verify WebSocket connection from IdP login page to iYou Home
+2. Verify WebSocket connection from IdP login page to iyou_home
 3. Test OIDC authentication flow between services
 4. Check that CORS headers are properly set
 
@@ -120,7 +120,7 @@ This guide provides instructions for running all 5 repositories locally on a Mac
 
 ### Debugging WebSocket
 - Check browser console for WebSocket connection errors
-- Verify iYou Home is running and listening on ws://127.0.0.1:9001
+- Verify iyou_home is running and listening on ws://127.0.0.1:9001
 - Check firewall settings if connection is blocked
 
 ## Database Management
