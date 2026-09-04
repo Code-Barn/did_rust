@@ -33,8 +33,8 @@ use serde_json::{json, Value};
 use zeroize::Zeroizing;
 
 pub use crypto::{
-    derive_ed25519_did, derive_identity_from_prf, derive_nostr_keypair, CryptoError,
-    DerivedIdentity,
+    derive_dependent_subkeys, derive_ed25519_did, derive_identity_from_prf, derive_nostr_keypair,
+    CryptoError, DependentDerivedKeypair, DerivedIdentity,
 };
 pub use vault_crypto::{decrypt_vault_payload, encrypt_vault_payload};
 
@@ -547,6 +547,48 @@ pub extern "C" fn derive_identity_from_prf_ffi(
 }
 
 #[no_mangle]
+pub extern "C" fn derive_dependent_subkeys_ffi(
+    root_seed_ptr: *const u8,
+    seed_len: usize,
+    index: u32,
+) -> *mut c_char {
+    let envelope = match read_byte_slice(root_seed_ptr, seed_len) {
+        None => json!({
+            "valid": false,
+            "did": "",
+            "nostr_pubkey_hex": "",
+            "error": "Null pointer to root seed"
+        }),
+        Some(buf) if buf.len() != 32 => json!({
+            "valid": false,
+            "did": "",
+            "nostr_pubkey_hex": "",
+            "error": format!("Invalid root seed length: expected 32 bytes, got {}", buf.len())
+        }),
+        Some(buf) => {
+            let mut seed = [0u8; 32];
+            seed.copy_from_slice(buf);
+            let seed = Zeroizing::new(seed);
+            match crypto::derive_dependent_subkeys(&seed, index) {
+                Ok(subkeys) => json!({
+                    "valid": true,
+                    "did": subkeys.did,
+                    "nostr_pubkey_hex": subkeys.nostr_pubkey_hex,
+                    "error": null
+                }),
+                Err(e) => json!({
+                    "valid": false,
+                    "did": "",
+                    "nostr_pubkey_hex": "",
+                    "error": e.to_string()
+                }),
+            }
+        }
+    };
+    c_string(envelope.to_string())
+}
+
+#[no_mangle]
 pub extern "C" fn encrypt_vault_payload_ffi(
     kek_ptr: *const u8,
     plaintext_ptr: *const u8,
@@ -683,6 +725,45 @@ mod wasm_api {
                 "valid": true,
                 "did": identity.did,
                 "nostr_pubkey_hex": identity.nostr_pubkey_hex,
+                "error": null
+            })
+            .to_string(),
+            Err(e) => serde_json::json!({
+                "valid": false,
+                "did": "",
+                "nostr_pubkey_hex": "",
+                "error": e.to_string()
+            })
+            .to_string(),
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn derive_dependent_subkeys(seed_hex: &str, index: u32) -> String {
+        let seed = hex::decode(seed_hex).ok().and_then(|v| {
+            let mut arr = [0u8; 32];
+            if v.len() == 32 {
+                arr.copy_from_slice(&v);
+                Some(arr)
+            } else {
+                None
+            }
+        });
+        let Some(seed) = seed else {
+            return serde_json::json!({
+                "valid": false,
+                "did": "",
+                "nostr_pubkey_hex": "",
+                "error": "Invalid root seed: expected 32-byte hex"
+            })
+            .to_string();
+        };
+        let seed = zeroize::Zeroizing::new(seed);
+        match super::derive_dependent_subkeys(&seed, index) {
+            Ok(subkeys) => serde_json::json!({
+                "valid": true,
+                "did": subkeys.did,
+                "nostr_pubkey_hex": subkeys.nostr_pubkey_hex,
                 "error": null
             })
             .to_string(),
