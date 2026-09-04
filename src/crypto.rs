@@ -19,9 +19,11 @@ use ed25519_dalek::SigningKey;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::{FieldBytes, SecretKey};
 use sha2::{Digest, Sha256};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 const NOSTR_DOMAIN: &[u8] = b"secp256k1-nostr";
+const DEPENDENT_ED25519_DOMAIN: &[u8] = b"iyou/dependent/";
+const DEPENDENT_NOSTR_DOMAIN: &[u8] = b"secp256k1-nostr/dependent/";
 const ED25519_MULTICODEC: [u8; 2] = [0xed, 0x01];
 const SCALAR_ATTEMPTS: u8 = 255;
 
@@ -52,6 +54,14 @@ pub struct DerivedIdentity {
     pub nostr_pubkey_hex: String,
     pub ed25519_priv_bytes: [u8; 32],
     pub secp256k1_priv_bytes: [u8; 32],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+pub struct DependentDerivedKeypair {
+    pub ed25519_signing_key_bytes: [u8; 32],
+    pub did: String,
+    pub secp256k1_signing_key_bytes: [u8; 32],
+    pub nostr_pubkey_hex: String,
 }
 
 pub fn derive_ed25519_did(
@@ -97,6 +107,65 @@ pub fn derive_identity_from_prf(
         ed25519_priv_bytes,
         secp256k1_priv_bytes,
     })
+}
+
+pub fn derive_dependent_subkeys(
+    root_seed: &[u8; 32],
+    dependent_index: u32,
+) -> Result<DependentDerivedKeypair, CryptoError> {
+    // child_ed25519_seed = SHA-256(root_seed || "iyou/dependent/" || LE32(dependent_index))
+    let mut ed_hasher = Sha256::new();
+    ed_hasher.update(root_seed);
+    ed_hasher.update(DEPENDENT_ED25519_DOMAIN);
+    ed_hasher.update(dependent_index.to_le_bytes());
+    let ed_seed: [u8; 32] = ed_hasher.finalize().into();
+    let ed_seed = Zeroizing::new(ed_seed);
+
+    let signing_key = SigningKey::from_bytes(&ed_seed);
+    let public = signing_key.verifying_key();
+
+    let mut multicodec = [0u8; 34];
+    multicodec[..2].copy_from_slice(&ED25519_MULTICODEC);
+    multicodec[2..].copy_from_slice(public.as_bytes());
+
+    let did = format!("did:key:z{}", bs58::encode(multicodec).into_string());
+
+    let secp_scalar = derive_dependent_secp256k1_scalar(root_seed, dependent_index)?;
+    let secret_key = SecretKey::from_bytes(&FieldBytes::from(*secp_scalar))
+        .map_err(|_| CryptoError::ScalarDerivationFailed)?;
+    let encoded_point = secret_key.public_key().to_encoded_point(false);
+    let mut x_only = [0u8; 32];
+    x_only.copy_from_slice(&encoded_point.as_ref()[1..33]);
+    let nostr_pubkey_hex = hex::encode(x_only);
+
+    Ok(DependentDerivedKeypair {
+        ed25519_signing_key_bytes: *ed_seed,
+        did,
+        secp256k1_signing_key_bytes: *secp_scalar,
+        nostr_pubkey_hex,
+    })
+}
+
+fn derive_dependent_secp256k1_scalar(
+    root_seed: &[u8; 32],
+    index: u32,
+) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
+    for attempt in 0..=SCALAR_ATTEMPTS {
+        let index_le = index.to_le_bytes();
+        let mut hasher = Sha256::new();
+        hasher.update(DEPENDENT_NOSTR_DOMAIN);
+        hasher.update(root_seed);
+        hasher.update(index_le);
+        if attempt > 0 {
+            hasher.update(std::slice::from_ref(&attempt));
+        }
+        let candidate: [u8; 32] = hasher.finalize().into();
+        let candidate = Zeroizing::new(candidate);
+        if SecretKey::from_bytes(&FieldBytes::from(*candidate)).is_ok() {
+            return Ok(candidate);
+        }
+    }
+    Err(CryptoError::ScalarDerivationFailed)
 }
 
 fn derive_secp256k1_scalar(root_seed: &[u8; 32], index: u32) -> Result<[u8; 32], CryptoError> {
